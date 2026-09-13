@@ -1,0 +1,16 @@
+# Du lieu va artifact - khong bao gio commit
+data/
+results/
+models/
+logs/
+*.apk
+*.parquet
+*.joblib
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/

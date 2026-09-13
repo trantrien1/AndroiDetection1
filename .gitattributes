@@ -1,0 +1,5 @@
+# Code chay tren Colab (Linux) - ep LF de CRLF cua Windows khong lot vao repo
+* text=auto eol=lf
+*.ipynb text eol=lf
+*.apk binary
+*.parquet binary

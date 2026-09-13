@@ -1,0 +1,34 @@
+# --- Du an nay -----------------------------------------------------------
+androguard==4.1.2
+scikit-learn>=1.3
+xgboost>=2.0
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+pyarrow>=14.0
+joblib>=1.3
+networkx>=3.0        # chi can khi bat nhom G5 (call graph)
+
+# --- Phu thuoc cua Obfuscapk ---------------------------------------------
+# LUU Y: KHONG co dong 'obfuscapk' o day, va do la co y.
+#
+# Obfuscapk khong phat hanh tren PyPI ('pip install obfuscapk' luon that bai
+# voi "No matching distribution found") va cung khong co setup.py o goc repo
+# nen 'pip install git+...' cung khong chay. Cach duy nhat:
+#
+#   git clone --depth 1 https://github.com/ClaudiuGeorgiu/Obfuscapk.git
+#   export OBFUSCAPK_SRC=$PWD/Obfuscapk/src
+#
+# src/obfuscate.py doc OBFUSCAPK_SRC va tu dua vao PYTHONPATH cua subprocess.
+#
+# Ba goi duoi la phu thuoc cua Obfuscapk, co y KHONG theo pin trong
+# src/requirements.txt cua no: nhung pin do tu 2021 va khong co wheel cho
+# Python 3.12.
+pycryptodome
+tqdm
+vt-py
+
+# Yapsy phai lay tu git, khong phai tu PyPI. Ban moi nhat tren PyPI la 1.12.2
+# (2019) va no 'import imp' - module da bi XOA khoi Python 3.12. Nhanh master
+# da chuyen sang importlib nhung chua bao gio duoc phat hanh.
+yapsy @ git+https://github.com/tibonihoo/yapsy.git@master#subdirectory=package
