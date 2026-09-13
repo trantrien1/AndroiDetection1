@@ -29,9 +29,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import re
 import shutil
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -41,7 +43,23 @@ from .utils import human, setup_logging, sha256_file, timed
 
 log = setup_logging("download")
 
-USER_AGENT = "Mozilla/5.0 (compatible; apk-robustness-research/1.0)"
+USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+
+# Quyen tai cua CIC gan voi COOKIE PHIEN dat luc submit form, khong phai voi
+# tham so ?t= tren URL. Thieu cookie thi server tra 403 kem dung mot dong:
+# "Registration required. Please go back and register."
+COOKIE_ENV = "CIC_COOKIE"
+
+
+def _headers(cookie: str | None = None, extra: dict | None = None) -> dict:
+    h = {"User-Agent": USER_AGENT}
+    if cookie:
+        h["Cookie"] = cookie
+    if extra:
+        h.update(extra)
+    return h
+
 
 DATASET_PAGE = "https://www.unb.ca/cic/datasets/maldroid-2020.html"
 
@@ -59,6 +77,15 @@ Cach lay dataset (CIC yeu cau dien form, khong con tai an danh duoc):
 Neu da tu giai nen thanh apks/<category>/*.apk thi chi can:
 
        python -m src.download --manifest-only
+
+Duong nhanh hon neu khong muon tai ve may roi upload lai: lay cookie phien tu
+trinh duyet da dien form (DevTools > Application > Cookies > cicresearch.ca,
+copy ca cap PHPSESSID=...) roi tai thang bang bang thong cua Colab:
+
+       CIC_COOKIE='PHPSESSID=...' python -m src.download \\
+           --url-base 'https://cicresearch.ca/CICDataset/MalDroid-2020/browse.php?t=...'
+
+Cookie chi song mot phien va KHONG duoc commit vao repo.
 """
 
 # Zip bat dau bang mot trong ba chu ky nay (local file / EOCD / spanned).
@@ -123,43 +150,65 @@ def find_local_zip(zip_dir: Path, category: str) -> Path | None:
 # --------------------------------------------------------------------------
 # Tai (chi dung duoc neu CIC mo lai duong truc tiep)
 # --------------------------------------------------------------------------
-def discover_zips(base_url: str) -> dict[str, str]:
-    """Doc index HTML cua thu muc, tra ve {category: url}.
+def discover_zips(base_url: str, cookie: str | None = None) -> dict[str, str]:
+    """Doc trang liet ke cua CIC, tra ve {category: url}.
 
-    Tra ve dict rong neu trang khong phai directory listing - truoc day cho
-    nay lang le doan ten file va di tiep, de roi tai ve trang HTML.
+    Hoat dong voi ca directory listing lan trang browse.php co token. Quyen
+    truy cap gan voi cookie phien chu khong voi tham so ?t= tren URL, nen
+    thieu cookie thi server tra 403 "Registration required".
+
+    Tra ve dict rong neu trang khong co link zip nao - KHONG doan ten file,
+    vi doan ten chinh la cai dan den chuyen luu trang HTML thanh .zip.
     """
     try:
-        req = urllib.request.Request(base_url, headers={"User-Agent": USER_AGENT})
+        req = urllib.request.Request(base_url, headers=_headers(cookie))
         with urllib.request.urlopen(req, timeout=60) as r:
             final_url = r.geturl()
             html = r.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read(512).decode("utf-8", "replace")
+        except Exception:
+            pass
+        if e.code == 403 or "registration required" in body.lower():
+            log.error("Server tu choi (%s). CIC doi COOKIE PHIEN cua trinh duyet "
+                      "da dien form - tham so ?t= tren URL khong du.", e.code)
+            log.error("Lay cookie: DevTools > Application > Cookies > "
+                      "cicresearch.ca, copy ca cap PHPSESSID=... roi dat vao "
+                      "bien moi truong %s.", COOKIE_ENV)
+        else:
+            log.warning("Khong doc duoc trang liet ke: %s", e)
+        return {}
     except (urllib.error.URLError, TimeoutError, OSError) as e:
-        log.warning("Khong doc duoc index: %s", e)
+        log.warning("Khong doc duoc trang liet ke: %s", e)
         return {}
 
-    if final_url.rstrip("/") != base_url.rstrip("/"):
-        log.warning("Index chuyen huong %s -> %s", base_url, final_url)
+    if "registration required" in html.lower():
+        log.error("Server tra ve 'Registration required' - cookie phien thieu "
+                  "hoac da het han. Dat lai %s.", COOKIE_ENV)
+        return {}
 
-    hrefs = re.findall(r'href="([^"]+\.zip)"', html, flags=re.I)
+    hrefs = re.findall(r'href=["\']([^"\']+\.zip)["\']', html, flags=re.I)
     if not hrefs:
-        log.warning("Trang index khong co link .zip nao - day khong phai "
-                    "directory listing.")
+        log.warning("Trang nay khong co link .zip nao.")
         return {}
 
     found: dict[str, str] = {}
     for href in hrefs:
-        stem = href.rsplit("/", 1)[-1][:-4].lower()
+        name = urllib.parse.unquote(href.rsplit("/", 1)[-1])[:-4].lower()
         for cat in config.CATEGORIES:
-            if cat.lower() in stem:
-                url = (href if href.startswith("http")
-                       else base_url.rstrip("/") + "/" + href.lstrip("/"))
-                found.setdefault(cat, url)
+            if cat.lower() in name:
+                # urljoin xu ly dung ca duong dan tuong doi lan query string,
+                # thu ma phep noi chuoi tho truoc day lam sai.
+                found.setdefault(cat, urllib.parse.urljoin(final_url, href))
                 break
+    log.info("Tim thay %d/%d category tren server", len(found), len(config.CATEGORIES))
     return found
 
 
-def download(url: str, dest: Path, retries: int = 3) -> Path:
+def download(url: str, dest: Path, retries: int = 3,
+             cookie: str | None = None) -> Path:
     """Tai co resume, va TU CHOI nhan file khong phai zip.
 
     Kiem tra hai lop: Content-Type tra ve tu server, va magic byte cua file
@@ -171,7 +220,7 @@ def download(url: str, dest: Path, retries: int = 3) -> Path:
 
     for attempt in range(1, retries + 1):
         have = part.stat().st_size if part.exists() else 0
-        headers = {"User-Agent": USER_AGENT}
+        headers = _headers(cookie)
         if have:
             headers["Range"] = f"bytes={have}-"
         try:
@@ -181,8 +230,10 @@ def download(url: str, dest: Path, retries: int = 3) -> Path:
                 if ctype.startswith("text/"):
                     body = r.read(4096).decode("utf-8", "replace")
                     part.unlink(missing_ok=True)
-                    hint = ("FORM DANG KY cua CIC"
-                            if "dataset download form" in body.lower()
+                    low = body.lower()
+                    hint = ("FORM DANG KY cua CIC" if "dataset download form" in low
+                            else "yeu cau DANG KY (thieu cookie phien)"
+                            if "registration required" in low
                             else f"noi dung {ctype}")
                     raise RuntimeError(
                         f"{url}\n  server tra ve {hint}, khong phai zip.\n{MANUAL_STEPS}")
@@ -315,7 +366,10 @@ def main() -> None:
     ap.add_argument("--zip-dir", type=Path, default=None,
                     help="thu muc chua 5 file zip da tai thu cong (khuyen dung)")
     ap.add_argument("--url-base", default=config.CIC_BASE_URL,
-                    help="chi dung neu CIC mo lai duong tai truc tiep")
+                    help="trang liet ke cua CIC, vi du browse.php?t=... sau khi dien form")
+    ap.add_argument("--cookie", default=os.environ.get(COOKIE_ENV),
+                    help=f"cookie phien, vi du 'PHPSESSID=...'. Mac dinh lay tu "
+                         f"bien moi truong {COOKIE_ENV}. KHONG commit vao repo.")
     ap.add_argument("--categories", nargs="*", default=config.CATEGORIES)
     ap.add_argument("--manifest-only", action="store_true",
                     help="APK da giai nen san thanh apks/<category>/*.apk")
@@ -327,7 +381,7 @@ def main() -> None:
     config.ensure_dirs()
 
     if args.list:
-        urls = discover_zips(args.url_base)
+        urls = discover_zips(args.url_base, args.cookie)
         if not urls:
             log.error("Server khong cho liet ke thu muc.")
             print(MANUAL_STEPS)
@@ -363,7 +417,7 @@ def main() -> None:
                     failed.append(cat)
                     continue
                 if not urls:
-                    urls = discover_zips(args.url_base)
+                    urls = discover_zips(args.url_base, args.cookie)
                     if not urls:
                         log.error("Khong lay duoc danh sach file tu server.")
                         print(MANUAL_STEPS)
@@ -375,7 +429,7 @@ def main() -> None:
                     continue
                 zip_path = config.ZIP_DIR / f"{cat}.zip"
                 with timed(log, f"tai {cat}"):
-                    download(url, zip_path)
+                    download(url, zip_path, cookie=args.cookie)
 
             with timed(log, f"giai nen {cat}"):
                 log.info("%s: %d APK", cat, extract_zip(zip_path, config.APK_DIR / cat))
