@@ -108,6 +108,12 @@ def check_obfuscapk() -> tuple[bool, str]:
         return True, "ok"
 
     err = (r.stderr or r.stdout or b"").decode("utf-8", "replace")
+
+    # KHONG cat ngan thong bao loi. Obfuscapk nem traceback nhieu dong va dong
+    # cuoi cung moi la dong noi ro nguyen nhan - cat o 300 ky tu la vut di dung
+    # cai minh can.
+    tail = "\n".join(err.strip().splitlines()[-6:])
+
     if "No module named 'obfuscapk'" in err or "No module named obfuscapk" in err:
         return False, (
             "khong import duoc obfuscapk. No khong co tren PyPI ('pip install "
@@ -122,7 +128,20 @@ def check_obfuscapk() -> tuple[bool, str]:
             "importlib nhung chua bao gio duoc phat hanh. Cai tu git:\n"
             "  pip install 'yapsy @ git+https://github.com/tibonihoo/yapsy.git"
             "@master#subdirectory=package'")
-    return False, f"rc={r.returncode}: {err.strip()[:300]}"
+
+    if "Something is wrong with executable" in err or "BundleDecompiler" in err:
+        return False, (
+            f"{tail}\n\n"
+            "check_external_tool_dependencies() cua Obfuscapk khoi tao CA "
+            "BundleDecompiler, du README goi no la tuy chon va du ta chi xu ly "
+            "APK chu khong xu ly app bundle (.aab). No chay TRUOC ca argparse "
+            "nen ngay `--help` cung kich hoat.\n"
+            "Neu thieu dung BundleDecompiler: tai jar roi tro bien moi truong "
+            "toi no:\n"
+            "  export BUNDLE_DECOMPILER_PATH=/duong/dan/BundleDecompiler.jar\n"
+            "Neu thieu apktool/apksigner/zipalign thi dong tren da chi ro cai nao.")
+
+    return False, f"rc={r.returncode}:\n{tail}"
 
 
 # --------------------------------------------------------------------------
@@ -385,11 +404,20 @@ def main() -> None:
                     help="thu lai nhung APK da fail (dung khi fail do het RAM/dut "
                          "session chu khong phai do ban than APK)")
     ap.add_argument("--max-apks", type=int, default=0, help="chi de thu nhanh")
+    ap.add_argument("--check", action="store_true",
+                    help="kiem tra toolchain roi thoat (1 neu co cai hong)")
     ap.add_argument("--smoke-test", action="store_true")
     ap.add_argument("--report", action="store_true")
     args = ap.parse_args()
 
     config.ensure_dirs()
+
+    if args.check:
+        t = check_toolchain()
+        bad = [k for k, v in t.items() if not v]
+        print()
+        print("THIEU / HONG:", bad if bad else "khong co - san sang")
+        sys.exit(1 if bad else 0)
 
     if args.smoke_test:
         sys.exit(0 if smoke_test(args.manifest) else 1)
