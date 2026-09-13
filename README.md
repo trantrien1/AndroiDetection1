@@ -47,9 +47,13 @@ Tên file không cần khớp chính xác — miễn có chứa tên category, k
 
 `download.py` kiểm tra magic byte của mọi file zip trước khi giải nén và nhận diện riêng trang form của CIC, nên nếu CIC đổi gì nữa bạn sẽ thấy đúng nguyên nhân thay vì một `BadZipFile` khó hiểu ở tận bước sau.
 
-### Số liệu trong PLAN cần đọc lại
+### Hai con số dễ lẫn
 
-PLAN ghi 17.341 APK với ~4.039 benign. Trang của CIC ghi 17.341 là **số mẫu thu thập ban đầu**; bộ dữ liệu công bố sau khi lọc còn 11.598 mẫu, trong đó Benign là **1.795**. Con số 11.598 áp cho bộ đặc trưng CSV (phân tích động); số APK thực tế trong các file zip có thể khác. Hãy đọc `manifest.csv` và `splits/split_summary.json` làm số thật thay vì tin con số trong PLAN — nếu benign ít hơn 250 thì `src.split` sẽ cảnh báo và tập test sẽ không cân bằng được.
+Bộ **APK** có 17.341 mẫu — đúng như PLAN ghi. Nhưng bộ **đặc trưng CSV** (phân tích động, thứ phần lớn paper dùng) chỉ có 11.598 mẫu sau khi CIC loại các JSON hỏng, trong đó Benign là 1.795.
+
+Hai con số này áp cho hai thứ khác nhau, và dự án này dùng cả hai: pipeline chính chạy trên APK (17.341), còn `--csv-baseline` chạy trên CSV (11.598) để đối chiếu với literature. Đừng so trực tiếp macro-F1 của hai bên như thể cùng một tập mẫu.
+
+PLAN ghi benign ≈ 4.039; con số này chưa xác nhận được cho bộ APK. Hãy đọc `manifest.csv` và `splits/split_summary.json` làm số thật — nếu benign ít hơn 250 thì `src.split` sẽ cảnh báo và tập test không cân bằng được, lúc đó hạ `--n-test`.
 
 ## Cài đặt
 
