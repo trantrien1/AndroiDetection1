@@ -78,6 +78,48 @@ def obfuscapk_cmd() -> list[str]:
     return [exe] if exe else [sys.executable, "-m", "obfuscapk.cli"]
 
 
+def ensure_bundledecompiler(env: dict[str, str]) -> dict[str, str]:
+    """Lam nguoi cho BundleDecompiler de Obfuscapk chiu khoi dong.
+
+    check_external_tool_dependencies() cua Obfuscapk khoi tao BundleDecompiler
+    VO DIEU KIEN, du README goi no la tuy chon. Constructor lam:
+
+        self.bundledecompiler_path = os.environ.get("BUNDLE_DECOMPILER_PATH",
+                                                    "BundleDecompiler.jar")
+        full_path = shutil.which(self.bundledecompiler_path)   # -> None
+        if not os.path.isfile(full_path):                      # TypeError
+
+    tuc la khi thieu bien moi truong thi no nem TypeError chu khong phai mot
+    thong bao tu te. Va vi no chay truoc ca argparse nen ngay `--help` cung
+    chet.
+
+    Tai sao file rong la du va an toan:
+      - Constructor CHI goi os.path.isfile, khong chay jar, khong hoi version.
+      - BundleDecompiler chi duoc dung cho app bundle (.aab). Pipeline nay chi
+        bao gio truyen cho Obfuscapk duong dan .apk - manifest.csv khong chua
+        gi khac - nen no khong bao gio duoc goi that.
+      - shutil.which() doi bit execute ke ca voi duong dan tuyet doi, nen file
+        phai duoc chmod +x, khong chi ton tai.
+
+    Neu ve sau can xu ly .aab that thi tai jar that roi dat
+    BUNDLE_DECOMPILER_PATH - ham nay khong ghi de bien da co.
+    """
+    if env.get("BUNDLE_DECOMPILER_PATH"):
+        return env
+    stub = config.SCRATCH / "BundleDecompiler.jar"
+    try:
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        if not stub.exists():
+            stub.write_bytes(b"")
+            log.info("Tao file nguoi cho BundleDecompiler tai %s "
+                     "(Obfuscapk doi no ton tai du ta chi xu ly .apk)", stub)
+        stub.chmod(0o755)
+        env["BUNDLE_DECOMPILER_PATH"] = str(stub)
+    except OSError as e:
+        log.warning("Khong tao duoc file nguoi cho BundleDecompiler: %s", e)
+    return env
+
+
 def obfuscapk_env() -> dict[str, str]:
     """Moi truong cho subprocess Obfuscapk.
 
@@ -90,7 +132,7 @@ def obfuscapk_env() -> dict[str, str]:
     if src:
         parts = [src] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
         env["PYTHONPATH"] = os.pathsep.join(parts)
-    return env
+    return ensure_bundledecompiler(env)
 
 
 def check_obfuscapk() -> tuple[bool, str]:
@@ -129,17 +171,20 @@ def check_obfuscapk() -> tuple[bool, str]:
             "  pip install 'yapsy @ git+https://github.com/tibonihoo/yapsy.git"
             "@master#subdirectory=package'")
 
-    if "Something is wrong with executable" in err or "BundleDecompiler" in err:
+    if "bundledecompiler" in err.lower():
+        stub = os.environ.get("BUNDLE_DECOMPILER_PATH") or config.SCRATCH / "BundleDecompiler.jar"
         return False, (
             f"{tail}\n\n"
-            "check_external_tool_dependencies() cua Obfuscapk khoi tao CA "
-            "BundleDecompiler, du README goi no la tuy chon va du ta chi xu ly "
-            "APK chu khong xu ly app bundle (.aab). No chay TRUOC ca argparse "
-            "nen ngay `--help` cung kich hoat.\n"
-            "Neu thieu dung BundleDecompiler: tai jar roi tro bien moi truong "
-            "toi no:\n"
-            "  export BUNDLE_DECOMPILER_PATH=/duong/dan/BundleDecompiler.jar\n"
-            "Neu thieu apktool/apksigner/zipalign thi dong tren da chi ro cai nao.")
+            "Van vuong BundleDecompiler. ensure_bundledecompiler() le ra da tao "
+            f"file nguoi cho tai {stub} va chmod +x. Kiem tra file do co ton tai "
+            "va co quyen execute khong - shutil.which() cua Obfuscapk doi bit "
+            "execute ke ca voi duong dan tuyet doi.")
+
+    if "Something is wrong with executable" in err:
+        return False, (
+            f"{tail}\n\n"
+            "Mot trong apktool/apksigner/zipalign co tren PATH nhung khong chay "
+            "duoc (thieu quyen execute, hoac thieu Java). Dong tren chi ro cai nao.")
 
     return False, f"rc={r.returncode}:\n{tail}"
 
