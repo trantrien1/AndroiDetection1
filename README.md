@@ -14,7 +14,7 @@ Từ dòng lệnh:
 export APKROB_WORK=/content/drive/MyDrive/apk-robustness   # bền vững, sống qua session
 export APKROB_SCRATCH=/content/apkrob                       # tạm, bị xoá mỗi session
 
-python -m src.download                    # Phase 1: tải + manifest.csv
+python -m src.download --zip-dir ~/maldroid_zips   # Phase 1: giải nén + manifest.csv
 python -m src.split                       # chốt cứng test_sha256.txt
 python -m src.obfuscate --smoke-test      # Phase 0: KHÔNG đi tiếp nếu fail
 python -m src.features.extract --tag clean        # Phase 2
@@ -34,6 +34,22 @@ Kiểm tra đường ống ML mà không cần APK (chạy trong ~2 phút):
 ```bash
 python tests/smoke_synthetic.py
 ```
+
+## Lấy dataset — không tải tự động được nữa
+
+**URL trong PLAN mục 3 đã chết.** `https://cicresearch.ca/CICDataset/MalDroid-2020/Dataset/APKs/` giờ trả 302 về trang giới thiệu datasets của UNB, và CIC đã đặt toàn bộ dataset sau một **form đăng ký** (họ tên, email, tổ chức, chức danh, quốc gia). Không còn đường tải ẩn danh.
+
+1. Mở https://www.unb.ca/cic/datasets/maldroid-2020.html → **Download the dataset** → điền form.
+2. Tải 5 file zip theo category về một thư mục (nên để trên Drive để khỏi làm lại mỗi session).
+3. `python -m src.download --zip-dir /đường/dẫn/tới/thư/mục/zip`
+
+Tên file không cần khớp chính xác — miễn có chứa tên category, khớp không phân biệt hoa thường. Nếu bạn đã tự giải nén sẵn thành `apks/<category>/*.apk` thì chỉ cần `python -m src.download --manifest-only`.
+
+`download.py` kiểm tra magic byte của mọi file zip trước khi giải nén và nhận diện riêng trang form của CIC, nên nếu CIC đổi gì nữa bạn sẽ thấy đúng nguyên nhân thay vì một `BadZipFile` khó hiểu ở tận bước sau.
+
+### Số liệu trong PLAN cần đọc lại
+
+PLAN ghi 17.341 APK với ~4.039 benign. Trang của CIC ghi 17.341 là **số mẫu thu thập ban đầu**; bộ dữ liệu công bố sau khi lọc còn 11.598 mẫu, trong đó Benign là **1.795**. Con số 11.598 áp cho bộ đặc trưng CSV (phân tích động); số APK thực tế trong các file zip có thể khác. Hãy đọc `manifest.csv` và `splits/split_summary.json` làm số thật thay vì tin con số trong PLAN — nếu benign ít hơn 250 thì `src.split` sẽ cảnh báo và tập test sẽ không cân bằng được.
 
 ## Cài đặt
 
